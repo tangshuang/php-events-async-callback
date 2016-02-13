@@ -18,13 +18,13 @@ public function sendmail() {
 
 通过上面这个方法，就定义了一个事件，这个事件的名称是sendmail。如果一个请求中包含$_POST['sendmail']而且它的值为一指定的MD5值，那么代表该请求是一个事件，在程序中定义的回调函数会被触发。
 
-2.规定两个变量
+2.规定变量
 
 打开EventListener.class.php文件，找到
 
 ``private $auth = 'sdfjadsfasodi98ds87f89ds6';``
 
-``$this->file = './'.md5($this->_current_url()).'.events';``
+另外 $this->events \ $this->vars \ $this->runtime 的路径你也可以修改。
 
 进行修改，改为你满意的值。
 

@@ -26,6 +26,15 @@ class Events {
         return false;
     }
 
+    /**
+     * 判断当前访问是否是一个事件访问
+     * @param $event
+     * @return mixed
+     */
+    protected function _is_event($event) {
+        return call_user_func(array($this,$event)); // 由于本类是对Events类的扩展，因此，本类也就拥有了Events类的方法
+    }
+
     // ------------------- 下面定义事件，必须为全小写，并返回boolean -------------------
 
     /**
@@ -34,6 +43,15 @@ class Events {
      */
     public function timeout() {
         return isset($this->headers['event']) && $this->headers['event'] == 'timeout';
+    }
+
+    public function backup() {
+        return isset($this->headers['event']) && $this->headers['event'] == 'backup';
+    }
+
+    public function alipaynotify() {
+        // 把支付宝的SDK加载进来
+        // 通过支付宝SDK提供的方法，判断回调通知是否为合法的支付宝回调通知，如果是合法的，返回true，否则返回false
     }
 
     /**

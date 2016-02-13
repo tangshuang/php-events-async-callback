@@ -9,7 +9,19 @@ class EventListener extends Events {
     /**
      * 用于记录事件及其监听回调的文件，注意，该文件不要被访客直接访问
      */
-    private $file;
+    private $events;
+
+    /**
+     * 用于记录事件内存传值的文件
+     * @var
+     */
+    private $vars;
+
+    /**
+     * 用于记录事件是否在运行，如果该文件存在，则表示事件回调正在执行，不应该让它继续执行下去
+     * @var
+     */
+    private $runtime;
 
     /**
      * 用于设置私钥
@@ -23,11 +35,19 @@ class EventListener extends Events {
      */
     public function __construct() {
         parent::__construct();
-        //$this->file = sys_get_temp_dir().'/events/'.md5($this->_current_url()).'.events'; // 串口事件文件
-        $this->file = './'.md5($this->_current_url()).'.events';
 
+        // 用于保存事件回调函数和中间传值的文件
+        $file = md5($this->current_url());
+        $this->events = "./runtime/$file.events";
+        $this->vars = "./runtime/$file.vars";
+        $this->runtime = "./runtime/$file.runtime";
+
+        /*
         if(func_num_args() > 0) {
             $events = func_get_args();
+            // 如果传入的参数为false，那么就不对事件进程回调，可能仅仅是为了调用本类的方法
+            if(count($events) == 1 && $events[0] === false)
+                return null;
         }
         else {
             $events = array();
@@ -36,6 +56,7 @@ class EventListener extends Events {
                 $events[] = $event;
             }
         }
+        */
 
         // 如果是内部请求，也就是通过下面的sock发起的异步请求，那么使页面在断开访问后，仍然能够执行
         if(isset($this->headers['event']) && isset($this->headers['auth']) && $this->headers['auth'] == md5($this->auth)) {
@@ -44,29 +65,38 @@ class EventListener extends Events {
             set_time_limit(0);
         }
 
-        if(is_array($events) && !empty($events)) {
-            /*
-            $flag = false;
-            foreach($events as $event) {
-                if($this->_is_event($event)) {
-                    // 为非阻塞做准备，当非阻塞请求发出时，下面两句可以保证程序正常执行
-                    if($flag === false) {
-                        ignore_user_abort();
-                        set_time_limit(0);
+        if(func_num_args() > 0) {
+            $events = func_get_args();
+            if(is_array($events) && !empty($events)) {
+                /*
+                $flag = false;
+                foreach($events as $event) {
+                    if($this->_is_event($event)) {
+                        // 为非阻塞做准备，当非阻塞请求发出时，下面两句可以保证程序正常执行
+                        if($flag === false) {
+                            ignore_user_abort();
+                            set_time_limit(0);
+                        }
+                        $this->run($event);
+                        $flag = true;
                     }
-                    $this->tigger($event);
-                    $flag = true;
                 }
-            }
-            if($flag)
-                exit;
-            */
-
-            // 上面注释掉的代码，会执行所有的事件回调，为了保证一个页面仅完成一个任务，本类仅允许每一次回调，只执行一个事件的回调，由传入的事件顺序决定
-            foreach($events as $event) {
-                if($this->_is_event($event)) {
-                    $this->tigger($event);
+                if($flag)
                     exit;
+                */
+
+                // 上面注释掉的代码，会执行所有的事件回调，为了保证一个页面仅完成一个任务，本类仅允许每一次回调，只执行一个事件的回调，由传入的事件顺序决定
+                foreach($events as $event) {
+                    if(!$event || !is_string($event) || trim($event) == '')
+                        continue;
+                    if($this->_is_event($event)) {
+                        if(file_exists($this->runtime))
+                            exit;
+                        $this->_write_file($this->runtime,'');
+                        $this->run($event);
+                        $this->_delete_file($this->runtime);
+                        exit;
+                    }
                 }
             }
         }
@@ -78,22 +108,13 @@ class EventListener extends Events {
     }
 
     /**
-     * 判断当前访问是否是一个事件访问
-     * @param $event
-     * @return mixed
-     */
-    private function _is_event($event) {
-        return call_user_func(array($this,$event)); // 由于本类是对Events类的扩展，因此，本类也就拥有了Events类的方法
-    }
-
-    /**
      * 读取文件内容
      * @return bool|string
      */
-    private function _read_events() {
-        if(!file_exists($this->file))
+    private function _read_file($file) {
+        if(!file_exists($file))
             return false;
-        return file_get_contents($this->file);
+        return file_get_contents($file);
     }
 
     /**
@@ -102,8 +123,12 @@ class EventListener extends Events {
      * @param bool $append
      * @return int
      */
-    private function _write_events($content,$append = false) {
-        return file_put_contents($this->file,$content,$append ? FILE_APPEND : LOCK_EX);
+    private function _write_file($file,$content,$append = false) {
+        return file_put_contents($file,$content,file_exists($file) && $append ? FILE_APPEND : LOCK_EX);
+    }
+
+    private function _delete_file($file) {
+        return unlink($file);
     }
 
     /**
@@ -111,7 +136,7 @@ class EventListener extends Events {
      * @return bool|mixed|string
      */
     private function _get_events() {
-        $events = $this->_read_events();
+        $events = $this->_read_file($this->events);
         if($events)
             $events = unserialize($events);
         return $events;
@@ -138,7 +163,7 @@ class EventListener extends Events {
         if(!is_array($events) || empty($events))
             return false;
         $events = serialize($events);
-        return $this->_write_events($events);
+        return $this->_write_file($this->events,$events);
     }
 
 
@@ -187,14 +212,14 @@ class EventListener extends Events {
         $events = $this->_get_events();
         if(isset($events[$event]))
             unset($events[$event]);
-        $this->_set_events($events);
+        return $this->_set_events($events);
     }
 
     /**
      * 销毁所有监听事件绑定
      */
     private function _destory_events() {
-        $this->_set_events(null);
+        return $this->_set_events(null);
     }
 
     /**
@@ -206,6 +231,16 @@ class EventListener extends Events {
         if(!$event)
             return $this->_get_events();
         return $this->_get_event($event);
+    }
+
+    /**
+     * 销毁已经注册好的回调事件
+     * @param bool $event
+     */
+    public function destory($event = false) {
+        if(!$event)
+            return $this->_destory_events();
+        return $this->_destory_event($event);
     }
 
     /**
@@ -232,7 +267,7 @@ class EventListener extends Events {
      * 模拟触发某个事件
      * @param $event
      */
-    public function tigger($event) {
+    public function run($event) {
         $functions = $this->_get_event($event);
         if(is_array($functions) && !empty($functions)) foreach($functions as $function) {
             call_user_func($function);
@@ -244,8 +279,8 @@ class EventListener extends Events {
      * @param $event
      * @param array $options
      */
-    public function run($event) {
-        $url = $this->_current_url();
+    public function trigger($event) {
+        $url = $this->current_url();
         $host = parse_url($url,PHP_URL_HOST);
         $path = parse_url($url,PHP_URL_PATH);
         $query = parse_url($url,PHP_URL_QUERY);
@@ -277,7 +312,7 @@ class EventListener extends Events {
      * 获取当前访问页面的完整url
      * @return mixed
      */
-    private function _current_url() {
+    public function current_url() {
         $url = $_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'];
         if(!isset($_SERVER['HTTPS']))
             $url = 'http://'.$url;
@@ -288,4 +323,24 @@ class EventListener extends Events {
         return $url;
     }
 
+    /**
+     * 中间传值，在主进程和支进程之间传值。一般情况是，在支进程中写入运算后得到的值，在主进程中使用该值进行下一步处理，具体看demo2.php
+     * @param $key
+     * @param bool $value
+     * @return int|null
+     */
+    public function value($key,$value = false) {
+        if($value === false) {
+            $vars = $this->_read_file($this->vars);
+            $vars = unserialize($vars);
+            return isset($vars[$key]) ? $vars[$key] : null;
+        }
+        else {
+            $vars = $this->_read_file($this->vars);
+            $vars = unserialize($vars);
+            $vars[$key] = $value;
+            $vars = serialize($vars);
+            return $this->_write_file($this->vars,$vars);
+        }
+    }
 }

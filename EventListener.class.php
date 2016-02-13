@@ -27,7 +27,7 @@ class EventListener extends Events {
      * 用于设置私钥
      * @var
      */
-    private $auth = 'sdfjadsfasodi98ds87f89ds6';
+    private $auth;
 
     /**
      * 构造
@@ -36,30 +36,23 @@ class EventListener extends Events {
     public function __construct() {
         parent::__construct();
 
+        if(isset($this->headers['event']) && isset($this->headers['auth']) && !empty($this->headers['auth'])) {
+            $this->auth = $this->headers['auth'];
+        }
+        else {
+            session_start();
+            $this->auth = isset($_SESSION['session_id']) && !empty($_SESSION['session_id']) ? $_SESSION['session_id'] : substr(md5(session_id()),8,16);
+            $_SESSION['session_id'] = $this->auth;
+        }
+
         // 用于保存事件回调函数和中间传值的文件
-        $file = md5($this->current_url());
+        $file = substr(md5($this->current_url().'-'.$this->auth),8,16);
         $this->events = "./runtime/$file.events";
         $this->vars = "./runtime/$file.vars";
         $this->runtime = "./runtime/$file.runtime";
 
-        /*
-        if(func_num_args() > 0) {
-            $events = func_get_args();
-            // 如果传入的参数为false，那么就不对事件进程回调，可能仅仅是为了调用本类的方法
-            if(count($events) == 1 && $events[0] === false)
-                return null;
-        }
-        else {
-            $events = array();
-            $events_functions = $this->_get_events();
-            if(is_array($events_functions) && !empty($events_functions)) foreach($events_functions as $event => $functions) {
-                $events[] = $event;
-            }
-        }
-        */
-
         // 如果是内部请求，也就是通过下面的sock发起的异步请求，那么使页面在断开访问后，仍然能够执行
-        if(isset($this->headers['event']) && isset($this->headers['auth']) && $this->headers['auth'] == md5($this->auth)) {
+        if(isset($this->headers['event']) && isset($this->headers['auth']) && !empty($this->headers['auth'])) {
             // 为非阻塞做准备，当非阻塞请求发出时，下面两句可以保证程序正常执行
             ignore_user_abort();
             set_time_limit(0);
@@ -68,23 +61,6 @@ class EventListener extends Events {
         if(func_num_args() > 0) {
             $events = func_get_args();
             if(is_array($events) && !empty($events)) {
-                /*
-                $flag = false;
-                foreach($events as $event) {
-                    if($this->_is_event($event)) {
-                        // 为非阻塞做准备，当非阻塞请求发出时，下面两句可以保证程序正常执行
-                        if($flag === false) {
-                            ignore_user_abort();
-                            set_time_limit(0);
-                        }
-                        $this->run($event);
-                        $flag = true;
-                    }
-                }
-                if($flag)
-                    exit;
-                */
-
                 // 上面注释掉的代码，会执行所有的事件回调，为了保证一个页面仅完成一个任务，本类仅允许每一次回调，只执行一个事件的回调，由传入的事件顺序决定
                 foreach($events as $event) {
                     if(!$event || !is_string($event) || trim($event) == '')
@@ -102,7 +78,7 @@ class EventListener extends Events {
         }
 
         // 如果是内部请求，也就是通过下面的sock发起的异步请求，那么在执行完上面的触发之后，要执行退出程序的操作，否则容易造成死循环
-        if(isset($this->headers['event']) && isset($this->headers['auth']) && $this->headers['auth'] == md5($this->auth)) {
+        if(isset($this->headers['event']) && isset($this->headers['auth']) && !empty($this->headers['auth'])) {
             exit;
         }
     }
@@ -301,7 +277,7 @@ class EventListener extends Events {
         $header = "GET $path  / HTTP/1.1\r\n";
         $header .= "Host: $host\r\n";
         $header .= "Event: $event\r\n";
-        $header .= "Auth: ".md5($this->auth)."\r\n";
+        $header .= "Auth: {$this->auth}\r\n";
         $header .= "Connection: Close\r\n\r\n";
         fwrite($fp,$header);
         fclose($fp);
